@@ -11,6 +11,7 @@ def process_bureau_and_balance(bureau, bureau_balance):
     bb_agg = bureau_balance.groupby('SK_ID_BUREAU')['MONTHS_BALANCE'].agg(['count']).reset_index()
     bb_agg.columns = ['SK_ID_BUREAU', 'MONTHS_COUNT']
     bureau = bureau.merge(bb_agg, on='SK_ID_BUREAU', how='left')
+    
 
     # Tổng hợp bureau
     bureau_agg = bureau.groupby('SK_ID_CURR').agg({
@@ -63,6 +64,34 @@ def process_installments(installments):
     installments_agg.columns = pd.Index(['SK_ID_CURR'] + ['INSTALL_' + e[0] + "_" + e[1].upper() for e in installments_agg.columns.tolist()[1:]])
     return installments_agg
 
+def create_domain_features(df):
+    print("Tạo các đặc trưng tương tác và dựa trên miền kiến thức...")
+    df_copy = df.copy()
+    
+    # Các tỷ lệ tài chính
+    df_copy['CREDIT_TO_INCOME_RATIO'] = df_copy['AMT_CREDIT'] / (df_copy['AMT_INCOME_TOTAL'] + 1e-6)
+    df_copy['ANNUITY_TO_INCOME_RATIO'] = df_copy['AMT_ANNUITY'] / (df_copy['AMT_INCOME_TOTAL'] + 1e-6)
+    df_copy['CREDIT_TO_GOODS_RATIO'] = df_copy['AMT_CREDIT'] / (df_copy['AMT_GOODS_PRICE'] + 1e-6)
+    df_copy['ANNUITY_TO_CREDIT_RATIO'] = df_copy['AMT_ANNUITY'] / (df_copy['AMT_CREDIT'] + 1e-6)
+    
+    # Các tỷ lệ nhân khẩu học
+    # Xử lý giá trị bất thường của DAYS_EMPLOYED
+    df_copy['DAYS_EMPLOYED'].replace(365243, np.nan, inplace=True)
+    df_copy['DAYS_EMPLOYED_PERCENT'] = df_copy['DAYS_EMPLOYED'] / (df_copy['DAYS_BIRTH'] + 1e-6)
+    df_copy['INCOME_PER_CHILD'] = df_copy['AMT_INCOME_TOTAL'] / (1 + df_copy['CNT_CHILDREN'])
+    df_copy['INCOME_PER_FAM_MEMBER'] = df_copy['AMT_INCOME_TOTAL'] / (df_copy['CNT_FAM_MEMBERS'] + 1e-6)
+    
+    # Các tương tác từ nguồn ngoài
+    ext_source_cols = ['EXT_SOURCE_2', 'EXT_SOURCE_3']
+    df_copy['EXT_SOURCES_PROD'] = df_copy[ext_source_cols].prod(axis=1)
+    df_copy['EXT_SOURCES_MEAN'] = df_copy[ext_source_cols].mean(axis=1)
+    df_copy['EXT_SOURCES_STD'] = df_copy[ext_source_cols].std(axis=1)
+
+    # Xử lý các giá trị NaN/inf có thể phát sinh
+    df_copy.replace([np.inf, -np.inf], np.nan, inplace=True)
+    
+    return df_copy
+
 # FEATURE ENGINEERING
 # Tải dữ liệu
 print("Tải dữ liệu...")
@@ -87,6 +116,9 @@ df_train = df_train.merge(installments_features, on='SK_ID_CURR', how='left')
 df_test = app_test.merge(bureau_features, on='SK_ID_CURR', how='left')
 df_test = df_test.merge(prev_app_features, on='SK_ID_CURR', how='left')
 df_test = df_test.merge(installments_features, on='SK_ID_CURR', how='left')
+
+df_train = create_domain_features(df_train)
+df_test = create_domain_features(df_test)
 
 print("Gộp dữ liệu hoàn tất!")
 print(f"Kích thước cuối cùng của tập train: {df_train.shape}")
